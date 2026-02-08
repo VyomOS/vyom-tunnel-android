@@ -28,14 +28,6 @@ android {
         ndk {
             abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
         }
-        val sdkVersionName = "1.0.0"
-
-        buildConfigField("String", "VERSION_NAME", "\"$sdkVersionName\"")
-        buildConfigField("String", "GA_ID", "\"${properties.getProperty("GA_MEASUREMENT_ID") ?: ""}\"")
-        buildConfigField("String", "GA_SECRET", "\"${properties.getProperty("GA_API_SECRET") ?: ""}\"")
-        buildConfigField("String", "FB_APP_ID", "\"${properties.getProperty("FB_APP_ID") ?: ""}\"")
-        buildConfigField("String", "FB_API_KEY", "\"${properties.getProperty("FB_API_KEY") ?: ""}\"")
-        buildConfigField("String", "FB_PROJECT_ID", "\"${properties.getProperty("FB_PROJECT_ID") ?: ""}\"")
     }
 
     buildTypes {
@@ -92,9 +84,4 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-
-    implementation(platform("com.google.firebase:firebase-bom:34.9.0"))
-
-    implementation("com.google.firebase:firebase-crashlytics")
-    implementation("com.google.firebase:firebase-analytics")
 }

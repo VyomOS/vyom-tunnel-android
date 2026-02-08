@@ -10,16 +10,12 @@ import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
-import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
 import io.github.vyomtunnel.core.NativeEngine
 import io.github.vyomtunnel.sdk.models.ConnectionProfiler
 import io.github.vyomtunnel.sdk.models.VyomIpInfo
 import io.github.vyomtunnel.sdk.models.VyomProfile
 import io.github.vyomtunnel.sdk.utils.AssetUtils
 import io.github.vyomtunnel.sdk.utils.LinkParser
-import io.github.vyomtunnel.sdk.utils.Telemetry
-import io.github.vyomtunnel.sdk.BuildConfig
 
 object VyomVpnManager {
 
@@ -75,29 +71,9 @@ object VyomVpnManager {
             System.loadLibrary("xray")
             System.loadLibrary("vyom-v2ray")
             loadSavedExclusions(context)
-            Telemetry.sendUsagePing(context)
-            initInternalFirebase(context)
             isInitialized = true
         } catch (e: UnsatisfiedLinkError) {
             Log.e(TAG, "Native libraries failed to load", e)
-        }
-    }
-
-    private fun initInternalFirebase(context: Context) {
-        if (BuildConfig.FB_APP_ID.isEmpty()) return
-        try {
-            val options = FirebaseOptions.Builder()
-                .setApplicationId(BuildConfig.FB_APP_ID)
-                .setApiKey(BuildConfig.FB_API_KEY)
-                .setProjectId(BuildConfig.FB_PROJECT_ID)
-                .build()
-
-            val appName = "VyomSDKCore"
-            if (FirebaseApp.getApps(context).none { it.name == appName }) {
-                FirebaseApp.initializeApp(context, options, appName)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Firebase setup failed")
         }
     }
 

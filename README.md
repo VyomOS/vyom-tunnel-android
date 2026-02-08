@@ -238,7 +238,7 @@ Join our Discord to:
 - Share feedback
 - Report issues
 - Discuss features
-#### 👉 Discord: 
+#### 👉 Discord: https://discord.gg/N5KQseReFg
 
 ## 📄 License
 This project is open source.

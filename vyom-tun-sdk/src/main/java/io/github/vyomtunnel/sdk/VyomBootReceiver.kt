@@ -20,26 +20,23 @@ class VyomBootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         val action = intent?.action ?: return
+        if (!BOOT_ACTIONS.contains(action)) return
 
-        if (BOOT_ACTIONS.contains(action)) {
-            Log.i(TAG, "Device boot detected ($action). Checking persistence...")
-
-            try {
-                if (VyomVpnManager.wasVpnRunning(context)) {
-                    val lastConfig = VyomVpnManager.getLastConfig(context)
-
-                    if (lastConfig != null) {
-                        Log.i(TAG, "Persistence active. Automatically restarting VPN...")
-                        VyomVpnManager.start(context, lastConfig)
-                    } else {
-                        Log.w(TAG, "VPN was marked as running, but config was missing.")
-                    }
-                } else {
-                    Log.d(TAG, "VPN was not running before shutdown. No action taken.")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to auto-restart VPN on boot", e)
-            }
+        Log.i(TAG, "Boot detected: $action")
+        if (!VyomVpnManager.isAutoStartEnabled(context)) {
+            Log.i(TAG, "Auto-start disabled by user")
+            return
         }
+        if (!VyomVpnManager.wasVpnRunning(context)) {
+            Log.i(TAG, "VPN not running before shutdown")
+            return
+        }
+        if (!VyomVpnManager.isPermissionGranted(context)) {
+            Log.w(TAG, "VPN permission missing")
+            return
+        }
+        val config = VyomVpnManager.getLastConfig(context) ?: return
+        Log.i(TAG, "Auto-starting VPN on boot")
+        VyomVpnManager.start(context, config)
     }
 }

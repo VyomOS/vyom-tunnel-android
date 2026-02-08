@@ -7,11 +7,11 @@ import android.os.Bundle
 import android.widget.*
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
-import com.google.android.material.switchmaterial.SwitchMaterial
 import io.github.vyomtunnel.sdk.VyomState
 import io.github.vyomtunnel.sdk.VyomVpnManager
 import io.github.vyomtunnel.sdk.utils.TrafficFormatter
 import io.github.vyomtunnel.sdk.utils.VyomConfigBuilder
+import androidx.appcompat.widget.SwitchCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -24,7 +24,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvSpeedDown: TextView
     private lateinit var tvIpInfo: TextView
     private lateinit var tvQuality: TextView
-    private lateinit var swKillSwitch: SwitchMaterial
+    private lateinit var swKillSwitch: SwitchCompat
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -98,6 +98,17 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+
+        findViewById<SwitchCompat>(R.id.swAutoStart).isChecked = VyomVpnManager.isAutoStartEnabled(this)
+        findViewById<SwitchCompat>(R.id.swAutoReconnect).isChecked = VyomVpnManager.isAutoReconnectEnabled(this)
+
+        findViewById<SwitchCompat>(R.id.swAutoStart).setOnCheckedChangeListener { _, enabled ->
+            VyomVpnManager.setAutoStartEnabled(this, enabled)
+        }
+
+        findViewById<SwitchCompat>(R.id.swAutoReconnect).setOnCheckedChangeListener { _, enabled ->
+            VyomVpnManager.setAutoReconnectEnabled(this, enabled)
         }
 
         findViewById<Button>(R.id.btnSplit).setOnClickListener {

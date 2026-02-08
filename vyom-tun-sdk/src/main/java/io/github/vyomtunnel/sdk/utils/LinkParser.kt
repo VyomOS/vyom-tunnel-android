@@ -73,52 +73,86 @@ object LinkParser {
     }
 
     internal fun buildConfigJson(
-        protocol: String, host: String, port: Int, uuid: String,
-        security: String, sni: String, network: String, flow: String,
-        path: String = "", headerType: String = "", publicKey: String = "",
-        shortId: String = "", fingerprint: String = "chrome"
+        protocol: String,
+        host: String,
+        port: Int,
+        uuid: String,
+        security: String,
+        sni: String,
+        network: String,
+        flow: String,
+        path: String = "",
+        headerType: String = "",
+        publicKey: String = "",
+        shortId: String = "",
+        fingerprint: String = "chrome"
     ): String {
+
         val config = JSONObject()
 
-        // 1. Log Configuration
-        config.put("log", JSONObject().put("loglevel", "debug"))
+        config.put("log", JSONObject().put("loglevel", "warning"))
 
-        // 2. DNS Configuration
-        config.put("dns", JSONObject().put("servers", JSONArray().put(DEFAULT_DNS).put("1.1.1.1")))
+        config.put("fakedns", JSONArray().put(
+            JSONObject().apply {
+                put("ipPool", "198.18.0.0/15")
+                put("poolSize", 65535)
+            }
+        ))
 
-        // 3. Inbound Configuration (Socks for Bridge)
-        val inbound = JSONObject().apply {
-            put("port", DEFAULT_PORT)
-            put("listen", "127.0.0.1")
-            put("protocol", "socks")
-            put("settings", JSONObject().put("auth", "noauth").put("udp", true))
-            put("sniffing", JSONObject().apply {
-                put("enabled", true)
-                put("destOverride", JSONArray().put("http").put("tls"))
+        config.put("dns", JSONObject().apply {
+            put("servers", JSONArray().apply {
+                put("https://1.1.1.1/dns-query")
+                put("https://8.8.8.8/dns-query")
+                put("localhost")
             })
-        }
-        config.put("inbounds", JSONArray().put(inbound))
+            put("queryStrategy", "UseIPv4")
+        })
 
-        // 4. Outbound Configuration (The Proxy)
-        val outbound = JSONObject().apply {
-            put("protocol", protocol)
+        config.put("inbounds", JSONArray().put(
+            JSONObject().apply {
+                put("listen", "127.0.0.1")
+                put("port", 20808)
+                put("protocol", "socks")
+                put("settings", JSONObject().apply {
+                    put("auth", "noauth")
+                    put("udp", true)
+                })
+                put("sniffing", JSONObject().apply {
+                    put("enabled", true)
+                    put("destOverride", JSONArray().apply {
+                        put("http")
+                        put("tls")
+                        put("fakedns")
+                    })
+                })
+            }
+        ))
+
+        val proxyOutbound = JSONObject().apply {
             put("tag", "proxy")
-            put("settings", JSONObject().put("vnext", JSONArray().put(JSONObject().apply {
-                put("address", host)
-                put("port", port)
-                put("users", JSONArray().put(JSONObject().apply {
-                    put("id", uuid)
-                    if (flow.isNotEmpty()) put("flow", flow)
-                    put("encryption", if (protocol == "vless") "none" else "auto")
-                }))
-            })))
+            put("protocol", protocol)
+            put("settings", JSONObject().put("vnext", JSONArray().put(
+                JSONObject().apply {
+                    put("address", host)
+                    put("port", port)
+                    put("users", JSONArray().put(
+                        JSONObject().apply {
+                            put("id", uuid)
+                            put("encryption", if (protocol == "vless") "none" else "auto")
+                            if (flow.isNotEmpty()) put("flow", flow)
+                        }
+                    ))
+                }
+            )))
 
-            val streamSettings = JSONObject().apply {
+            put("streamSettings", JSONObject().apply {
                 put("network", network)
                 put("security", security)
 
                 when (security) {
-                    "tls" -> put("tlsSettings", JSONObject().put("serverName", if (sni.isNotEmpty()) sni else host))
+                    "tls" -> put("tlsSettings", JSONObject().put(
+                        "serverName", if (sni.isNotEmpty()) sni else host
+                    ))
                     "reality" -> put("realitySettings", JSONObject().apply {
                         put("serverName", if (sni.isNotEmpty()) sni else host)
                         put("publicKey", publicKey)
@@ -129,25 +163,42 @@ object LinkParser {
 
                 if (network == "ws") {
                     put("wsSettings", JSONObject().put("path", path))
-                } else if (network == "tcp" && headerType == "http") {
-                    put("tcpSettings", JSONObject().put("header", JSONObject().put("type", "http")))
                 }
-            }
-            put("streamSettings", streamSettings)
+                if (network == "tcp" && headerType == "http") {
+                    put("tcpSettings", JSONObject().put("header",
+                        JSONObject().put("type", "http")
+                    ))
+                }
+            })
         }
 
-        // 5. Direct Outbound (Freedom)
-        val freedom = JSONObject().put("protocol", "freedom").put("tag", "direct")
-        config.put("outbounds", JSONArray().put(outbound).put(freedom))
+        val directOutbound = JSONObject().apply {
+            put("tag", "direct")
+            put("protocol", "freedom")
+            put("settings", JSONObject().put("domainStrategy", "UseIP"))
+        }
 
-        // 6. Routing Configuration
+        config.put("outbounds", JSONArray().apply {
+            put(proxyOutbound)
+            put(directOutbound)
+        })
+
         config.put("routing", JSONObject().apply {
             put("domainStrategy", "IPIfNonMatch")
-            put("rules", JSONArray().put(JSONObject().apply {
-                put("type", "field")
-                put("port", 53)
-                put("outboundTag", "direct")
-            }))
+            put("rules", JSONArray().apply {
+                    put(JSONObject().apply {
+                    put("type", "field")
+                    put("network", "udp")
+                    put("port", 53)
+                    put("outboundTag", "proxy")
+                })
+
+                put(JSONObject().apply {
+                    put("type", "field")
+                    put("network", "tcp,udp")
+                    put("outboundTag", "proxy")
+                })
+            })
         })
 
         return config.toString()

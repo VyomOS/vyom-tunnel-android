@@ -28,7 +28,7 @@ class VyomVpnService : TProxyService() {
         private const val TAG = "VyomVpnService"
         private const val NOTIFICATION_CHANNEL_ID = "vpn_service"
         private const val NOTIFICATION_ID = 1
-        private const val DEFAULT_MTU = 1400
+        private const val DEFAULT_MTU = 1280
         private const val LOCAL_ADDRESS = "172.19.0.1"
         private const val BRIDGE_PORT = 20808
         private const val BRIDGE_ADDRESS = "127.0.0.1"
@@ -56,13 +56,24 @@ class VyomVpnService : TProxyService() {
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             super.onAvailable(network)
-            if (VyomVpnManager.currentState == VyomState.CONNECTED) {
-                val lastConfig = VyomVpnManager.getLastConfig(this@VyomVpnService)
-                lastConfig?.let {
-                    NativeEngine.stopXray()
-                    NativeEngine.startXray(it, filesDir.absolutePath)
-                }
+            if (!VyomVpnManager.isAutoReconnectEnabled(this@VyomVpnService)) {
+                Log.i(TAG, "Auto-reconnect disabled by user")
+                return
             }
+
+            if (!VyomVpnManager.wasVpnRunning(this@VyomVpnService)) {
+                Log.i(TAG, "VPN not marked alive, skipping reconnect")
+                return
+            }
+
+            if (VyomVpnManager.currentState != VyomState.CONNECTED) return
+
+            val config = VyomVpnManager.getLastConfig(this@VyomVpnService) ?: return
+
+            Log.i(TAG, "Network changed → restarting Xray")
+
+            NativeEngine.stopXray()
+            NativeEngine.startXray(config, filesDir.absolutePath)
         }
 
         override fun onLost(network: Network) {
@@ -86,73 +97,70 @@ class VyomVpnService : TProxyService() {
     }
 
     private fun startVpn(xrayConfig: String) {
-        val appLabel = applicationInfo.loadLabel(packageManager).toString()
         val assetPath = filesDir.absolutePath
+        Log.i("VyomVPN", "=== START VPN ===")
 
-        thread(start = true, name = "VyomStartupThread") {
+        thread(name = "VyomStartup") {
             try {
                 NativeEngine.stopXray()
-                this@VyomVpnService.TProxyStopService()
-                Thread.sleep(200)
+                TProxyStopService()
+                Thread.sleep(300)
+
+                val result = NativeEngine.startXray(xrayConfig, assetPath)
+                Log.i("VyomVPN", "Xray started: $result")
+                Thread.sleep(1000)
 
                 val builder = Builder()
-                    .setSession(appLabel)
-                    .setMtu(DEFAULT_MTU)
-                    .addAddress(LOCAL_ADDRESS, 30)
+                    .setSession("VyomVPN")
+                    .setMtu(1500)
+                    .addAddress("172.19.0.1", 30)
                     .addRoute("0.0.0.0", 0)
-                    .addDnsServer("8.8.8.8")
+                    .allowFamily(android.system.OsConstants.AF_INET)
                     .addDisallowedApplication(packageName)
 
-                VyomVpnManager.getExcludedApps(this@VyomVpnService).forEach { pkg ->
-                    try { builder.addDisallowedApplication(pkg) } catch (_: Exception) {}
+                val excludedApps = VyomVpnManager.getExcludedApps(this)
+                for (pkg in excludedApps) {
+                    try {
+                        if (pkg != packageName) {
+                            builder.addDisallowedApplication(pkg)
+                            Log.i("VyomVPN", "SplitTunnel EXCLUDE: $pkg")
+                        }
+                    } catch (e: Exception) {
+                        Log.w("VyomVPN", "Failed to exclude $pkg", e)
+                    }
                 }
 
                 if (VyomVpnManager.isKillSwitchEnabled(this)) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        builder.setMetered(false)
-                    }
                     builder.setBlocking(true)
                 }
 
-                tunInterface = builder.establish() ?: return@thread
-                val fd = tunInterface!!.fd
+                tunInterface = builder.establish()
+                val fd = tunInterface?.fd ?: throw IllegalStateException("TUN failed")
+                Log.i("VyomVPN", "TUN OK FD=$fd")
 
-                thread(start = true, name = "XrayMonitor") {
-                    Log.d(TAG, "XrayMonitor: Starting Xray core...")
-                    val result = NativeEngine.startXray(xrayConfig, assetPath)
+                val tunFile = File(filesDir, "tun.yaml")
+                tunFile.writeText(
+                    """
+                socks5:
+                  address: 127.0.0.1
+                  port: 20808
+                tcp:
+                  enabled: true
+                udp:
+                  enabled: true
+                dns:
+                  enabled: true
+                """.trimIndent()
+                )
 
-                    if (result != 0) {
-                        Log.e(TAG, "Xray core died with code: $result")
-
-                        if (VyomVpnManager.isKillSwitchEnabled(this@VyomVpnService)) {
-                            Log.w(TAG, "Kill Switch triggered: Tearing down tunnel")
-                            stopVpn()
-                        }
-                        notifyStatus(VyomState.ERROR)
-                    }
-                }
-
-                Thread.sleep(500)
-
-                val tunConfigFile = File(filesDir, "tun.yaml")
-                tunConfigFile.writeText("""
-                    socks5:
-                      port: $BRIDGE_PORT
-                      address: $BRIDGE_ADDRESS
-                    tcp:
-                      enabled: true
-                    udp:
-                      enabled: true
-                """.trimIndent())
-
-                this@VyomVpnService.TProxyStartService(tunConfigFile.absolutePath, fd)
+                TProxyStartService(tunFile.absolutePath, fd)
 
                 startStatsTicker()
-                startHealthGuard()
                 notifyStatus(VyomState.CONNECTED)
+                Log.i("VyomVPN", "=== VPN CONNECTED ===")
 
             } catch (e: Exception) {
-                Log.e(TAG, "Vpn start crash", e)
+                Log.e("VyomVPN", "VPN START FAILED", e)
                 notifyStatus(VyomState.ERROR)
             }
         }

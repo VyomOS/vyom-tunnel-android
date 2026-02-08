@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import android.util.Log
+import android.widget.Toast
 import androidx.annotation.RequiresApi
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
@@ -32,6 +33,8 @@ object VyomVpnManager {
     private const val PREFS_NAME = "vyom_vpn_prefs"
     private const val KEY_LAST_CONFIG = "last_config"
     private const val KEY_VPN_ALIVE = "vpn_should_be_running"
+    private const val KEY_AUTO_START = "auto_start_on_boot"
+    private const val KEY_AUTO_RECONNECT = "auto_reconnect_on_network"
     private const val KEY_EXCLUDED_APPS = "excluded_apps_list"
 
     private var isInitialized = false
@@ -117,12 +120,29 @@ object VyomVpnManager {
     }
 
     fun connectWithPermission(activity: Activity, input: String) {
+        val finalConfig = try {
+            if (input.trim().startsWith("{")) input
+            else LinkParser.parse(input)
+        } catch (e: Exception) {
+            Toast.makeText(activity, "Invalid link or JSON", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val validationError = validateConfig(activity, finalConfig)
+        if (validationError != null) {
+            Toast.makeText(activity, validationError, Toast.LENGTH_LONG).show()
+            Log.e("VyomVPN", "Config validation failed: $validationError")
+            return
+        }
+
         val intent = VpnService.prepare(activity)
         if (intent != null) {
-            saveConfig(activity, if (input.startsWith("{")) input else LinkParser.parse(input))
-            activity.startActivity(Intent(activity, VyomPermissionActivity::class.java))
+            saveConfig(activity, finalConfig)
+            activity.startActivity(
+                Intent(activity, VyomPermissionActivity::class.java)
+            )
         } else {
-            connect(activity, input)
+            start(activity, finalConfig)
         }
     }
 
@@ -317,4 +337,22 @@ object VyomVpnManager {
     fun isPermissionGranted(context: Context): Boolean {
         return android.net.VpnService.prepare(context) == null
     }
+
+    fun setAutoStartEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_AUTO_START, enabled).apply()
+    }
+
+    fun isAutoStartEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_AUTO_START, false)
+
+    fun setAutoReconnectEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_AUTO_RECONNECT, enabled).apply()
+    }
+
+    fun isAutoReconnectEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_AUTO_RECONNECT, false)
 }

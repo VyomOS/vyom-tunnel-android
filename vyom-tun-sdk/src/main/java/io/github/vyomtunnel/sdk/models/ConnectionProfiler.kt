@@ -19,56 +19,70 @@ object ConnectionProfiler {
      * Operates on a background thread and returns results via [callback].
      */
     fun runDiagnostics(
-        host: String = DEFAULT_HOST,
-        port: Int = DEFAULT_PORT,
-        count: Int = PROBE_COUNT,
+        host: String = "1.1.1.1",
+        port: Int = 53, // UDP DNS
+        count: Int = 10,
         callback: (VyomProfile) -> Unit
     ) {
-        kotlin.concurrent.thread(start = true, name = "VyomProfilerThread") {
-            val latencies = mutableListOf<Long>()
-            var lostPackets = 0
+        kotlin.concurrent.thread(name = "VyomProfiler") {
 
-            for (i in 1..count) {
+            var received = 0
+            val latencies = mutableListOf<Long>()
+
+            repeat(count) {
                 try {
+                    val socket = java.net.DatagramSocket()
+                    socket.soTimeout = 2000
+
+                    val data = byteArrayOf(0x01)
+                    val packet = java.net.DatagramPacket(
+                        data,
+                        data.size,
+                        java.net.InetAddress.getByName(host),
+                        port
+                    )
+
                     val start = System.currentTimeMillis()
-                    // Use 'use' to automatically close the socket regardless of success/fail
-                    Socket().use { socket ->
-                        socket.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT)
-                        val rtt = System.currentTimeMillis() - start
-                        latencies.add(rtt)
-                    }
-                } catch (e: Exception) {
-                    lostPackets++
-                    Log.w(TAG, "Probe $i failed: ${e.message}")
+                    socket.send(packet)
+
+                    val buffer = ByteArray(512)
+                    val response = java.net.DatagramPacket(buffer, buffer.size)
+                    socket.receive(response)
+
+                    latencies.add(System.currentTimeMillis() - start)
+                    received++
+                    socket.close()
+
+                } catch (_: Exception) {
+                    // timeout = lost packet
                 }
 
-                if (i < count) Thread.sleep(INTER_PROBE_DELAY)
+                Thread.sleep(100)
             }
 
-            if (latencies.isEmpty()) {
-                Log.e(TAG, "All probes failed. Connection is likely dead.")
-                callback(VyomProfile(0, 0, 100.0, 0))
-                return@thread
-            }
+            val lossPercent =
+                ((count - received).toDouble() / count.toDouble()) * 100.0
 
-            // Calculations
-            val avgLatency = latencies.average().toLong()
-            val packetLoss = (lostPackets.toDouble() / count.toDouble()) * 100.0
+            val avgLatency =
+                if (latencies.isNotEmpty()) latencies.average().toLong() else 0
 
-            // Jitter calculation (Standard RFC deviation method)
-            var totalJitter: Long = 0
-            for (i in 0 until latencies.size - 1) {
-                totalJitter += abs(latencies[i] - latencies[i + 1])
-            }
-            val jitter = if (latencies.size > 1) totalJitter / (latencies.size - 1) else 0
+            val jitter = if (latencies.size > 1) {
+                latencies.zipWithNext { a, b -> kotlin.math.abs(a - b) }.average().toLong()
+            } else 0
 
-            val qualityScore = calculateScore(avgLatency, jitter, packetLoss)
+            val quality = calculateScore(avgLatency, jitter, lossPercent)
 
-            val profile = VyomProfile(avgLatency, jitter, packetLoss, qualityScore)
-            Log.i(TAG, "Diagnostics complete: $profile")
-            callback(profile)
+            callback(
+                VyomProfile(
+                    avgLatency = avgLatency,
+                    jitter = jitter,
+                    packetLoss = lossPercent,
+                    qualityScore = quality
+                )
+            )
         }
     }
+
 
     /**
      * Internal algorithm to convert raw metrics into a user-friendly 0-100 score.

@@ -253,5 +253,12 @@ Built with a focus on:
 If you find this SDK useful, consider giving the repo a ⭐.
 
 
+## 🔒 Security Notes
+
+- Vyom Tunnel does not collect personal user data by default
+- All VPN traffic handling happens locally on-device
+- Host applications are responsible for server-side security and policies
+
+
 
 

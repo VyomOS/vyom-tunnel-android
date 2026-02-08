@@ -13,6 +13,7 @@ This SDK is designed for developers who want **full control**, **native performa
 - [Features](#-features)
 - [Native Compatibility (16 KB Page Size)](#-native-compatibility-16-kb-page-size)
 - [ABI & App Size Optimization](#-abi--app-size-optimization)
+- [Changelog](#-changelog)
 - [Installation](#-installation-jitpack)
 - [Quick Start](#-quick-start)
 - [Split Tunneling](#-split-tunneling-exclude-apps)
@@ -77,6 +78,10 @@ When distributed via **Android App Bundle (AAB)**:
 - App size remains minimal
 
 No extra configuration is required.
+
+---
+## Changelog
+See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ---
 

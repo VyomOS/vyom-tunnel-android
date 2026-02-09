@@ -40,7 +40,7 @@ This SDK is designed for developers who want **full control**, **native performa
 - 🧠 Connection diagnostics (latency, jitter, loss)
 - 🧩 Works with modern Android VPN APIs
 - 🧱 **16 KB page size aligned native binaries**
-- 📱 Android 8.0+ (API 24+) support
+- 📱 Android 7.0+ (API 24+) support
 - 🏗️ ABI-aware native packaging (ARM / x86)
 
 ---

@@ -68,7 +68,7 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "io.github.vyomtunnel"
                 artifactId = "vyom-tun-sdk"
-                version = "1.0.0"
+                version = "1.0.1"
             }
         }
     }

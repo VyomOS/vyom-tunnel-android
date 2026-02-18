@@ -1,5 +1,6 @@
 package io.github.vyomtunnel.sdk
 
+import android.app.Application.getProcessName
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -26,7 +27,7 @@ class VyomVpnService : TProxyService() {
 
     companion object {
         private const val TAG = "VyomVpnService"
-        private const val NOTIFICATION_CHANNEL_ID = "vpn_service"
+        private const val NOTIFICATION_CHANNEL_ID = "io.github.vyomtunnel.vpn"
         private const val NOTIFICATION_ID = 1
         private const val DEFAULT_MTU = 1280
         private const val LOCAL_ADDRESS = "172.19.0.1"
@@ -82,7 +83,6 @@ class VyomVpnService : TProxyService() {
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         setupForegroundService(intent)
 
@@ -98,6 +98,7 @@ class VyomVpnService : TProxyService() {
 
     private fun startVpn(xrayConfig: String) {
         val assetPath = filesDir.absolutePath
+        val sessionName = VyomVpnManager.getCustomName(this) ?: "Vyom VPN"
         Log.i("VyomVPN", "=== START VPN ===")
 
         thread(name = "VyomStartup") {
@@ -111,7 +112,7 @@ class VyomVpnService : TProxyService() {
                 Thread.sleep(1000)
 
                 val builder = Builder()
-                    .setSession("VyomVPN")
+                    .setSession(sessionName)
                     .setMtu(1500)
                     .addAddress("172.19.0.1", 30)
                     .addRoute("0.0.0.0", 0)
@@ -219,10 +220,12 @@ class VyomVpnService : TProxyService() {
     }
 
     private fun setupForegroundService(intent: Intent?) {
+        val customName = VyomVpnManager.getCustomName(this)
+        val customIcon = VyomVpnManager.getCustomIcon(this)
         val appLabel = applicationInfo.loadLabel(packageManager).toString()
-        val title = intent?.getStringExtra(NOTIF_TITLE) ?: appLabel
+        val title = customName ?: appLabel
         val content = intent?.getStringExtra(NOTIF_CONTENT) ?: "VPN is active"
-        val iconRes = intent?.getIntExtra(NOTIF_ICON, 0)?.takeIf { it != 0 } ?: applicationInfo.icon
+        val iconRes = if (customIcon != 0) customIcon else applicationInfo.icon
         val channelName = intent?.getStringExtra(NOTIF_CHANNEL) ?: "VPN Service"
 
         createNotificationChannel(channelName)
@@ -257,6 +260,13 @@ class VyomVpnService : TProxyService() {
 
     override fun onCreate() {
         super.onCreate()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            try {
+                android.webkit.WebView.setDataDirectorySuffix("xray_process")
+            } catch (e: Exception) {
+                Log.e(TAG, e.message.toString())
+            }
+        }
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()

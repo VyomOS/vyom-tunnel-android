@@ -32,6 +32,8 @@ object VyomVpnManager {
     private const val KEY_AUTO_START = "auto_start_on_boot"
     private const val KEY_AUTO_RECONNECT = "auto_reconnect_on_network"
     private const val KEY_EXCLUDED_APPS = "excluded_apps_list"
+    private const val KEY_CUSTOM_NAME = "custom_app_name"
+    private const val KEY_CUSTOM_ICON = "custom_app_icon"
 
     private var isInitialized = false
     private var internalReceiver: BroadcastReceiver? = null
@@ -111,8 +113,15 @@ object VyomVpnManager {
             return
         }
 
-        val intent = VpnService.prepare(activity)
-        if (intent != null) {
+//        val intent = VpnService.prepare(activity)
+        val vpnIntent = VpnService.prepare(activity)
+
+        val hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            activity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        if (vpnIntent != null || !hasNotificationPermission) {
             saveConfig(activity, finalConfig)
             activity.startActivity(
                 Intent(activity, VyomPermissionActivity::class.java)
@@ -157,7 +166,6 @@ object VyomVpnManager {
 
     // --- LISTENERS & IPC (Inter-Process Communication) ---
 
-    @RequiresApi(Build.VERSION_CODES.O)
     fun registerListener(context: Context, listener: VyomListener) {
         this.vpnListener = listener
         if (internalReceiver != null) return
@@ -184,8 +192,11 @@ object VyomVpnManager {
             addAction(ACTION_VPN_TRAFFIC)
         }
 
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Context.RECEIVER_EXPORTED else 0
-        context.registerReceiver(internalReceiver, filter, flags)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            context.registerReceiver(internalReceiver, filter, Context.RECEIVER_EXPORTED)
+        } else {
+            context.registerReceiver(internalReceiver, filter)
+        }
     }
 
     fun unregisterListener(context: Context) {
@@ -294,14 +305,7 @@ object VyomVpnManager {
                 val response = conn.inputStream.bufferedReader().use { it.readText() }
 
                 val obj = org.json.JSONObject(response)
-                val info = VyomIpInfo(
-                    ip = obj.optString("ip", "Unknown"),
-                    country = obj.optString("country", "Unknown"),
-                    city = obj.optString("city", "Unknown"),
-                    isp = obj.optString("connection", "{}").let {
-                        org.json.JSONObject(it).optString("isp", "Unknown")
-                    }
-                )
+                val info = VyomIpInfo.fromJson(response)
                 callback(info)
             } catch (e: Exception) {
                 Log.e("VyomVPN", "Failed to fetch IP info: ${e.message}")
@@ -331,4 +335,20 @@ object VyomVpnManager {
     fun isAutoReconnectEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(KEY_AUTO_RECONNECT, false)
+
+    fun setAppName(context: Context, name: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putString(KEY_CUSTOM_NAME, name).apply()
+    }
+
+    fun setAppIcon(context: Context, iconResId: Int) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putInt(KEY_CUSTOM_ICON, iconResId).apply()
+    }
+
+    internal fun getCustomName(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_CUSTOM_NAME, null)
+
+    internal fun getCustomIcon(context: Context): Int =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getInt(KEY_CUSTOM_ICON, 0)
 }

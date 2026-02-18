@@ -1,26 +1,48 @@
 package io.github.vyomtunnel.sdk
 
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 
 class VyomPermissionActivity : AppCompatActivity() {
-    private val vpnRequest = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+
+    private val requestVpn = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == RESULT_OK) {
-            // Permission granted, trigger the last saved config
-            val config = VyomVpnManager.getLastConfig(this)
-            if (config != null) VyomVpnManager.start(this, config)
+            startVpnIfConfigExists()
         }
         finish()
     }
 
+    private val requestNotification = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        requestVpnPermission()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestNotification.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            requestVpnPermission()
+        }
+    }
+
+    private fun requestVpnPermission() {
         val intent = VpnService.prepare(this)
-        if (intent != null) vpnRequest.launch(intent) else finish()
+        if (intent != null) {
+            requestVpn.launch(intent)
+        } else {
+            startVpnIfConfigExists()
+            finish()
+        }
+    }
+
+    private fun startVpnIfConfigExists() {
+        val lastConfig = VyomVpnManager.getLastConfig(this)
+        if (lastConfig != null) {
+            VyomVpnManager.start(this, lastConfig)
+        }
     }
 }

@@ -1,6 +1,7 @@
 package io.github.vyomtunnel.sdk
 
 import android.app.Activity
+import android.app.Application
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -8,6 +9,7 @@ import android.content.IntentFilter
 import android.net.VpnService
 import android.os.Build
 import android.util.Log
+import android.webkit.WebView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import io.github.vyomtunnel.core.NativeEngine
@@ -16,6 +18,8 @@ import io.github.vyomtunnel.sdk.models.VyomIpInfo
 import io.github.vyomtunnel.sdk.models.VyomProfile
 import io.github.vyomtunnel.sdk.utils.AssetUtils
 import io.github.vyomtunnel.sdk.utils.LinkParser
+import io.github.vyomtunnel.sdk.utils.VyomLogger
+import kotlin.coroutines.coroutineContext
 
 object VyomVpnManager {
 
@@ -24,6 +28,7 @@ object VyomVpnManager {
     // Broadcast Actions
     const val ACTION_VPN_STATE = "io.github.vyomtunnel.VPN_STATE"
     const val ACTION_VPN_TRAFFIC = "io.github.vyomtunnel.VPN_TRAFFIC"
+    const val ACTION_SDK_LOGS = "io.github.vyomtunnel.SDK_LOGS"
 
     // Persistence Keys
     private const val PREFS_NAME = "vyom_vpn_prefs"
@@ -52,6 +57,7 @@ object VyomVpnManager {
     interface VyomListener {
         fun onStateChanged(state: VyomState)
         fun onTrafficUpdate(up: Long, down: Long)
+        fun onLogReceived(message: String)
     }
 
     /**
@@ -68,6 +74,17 @@ object VyomVpnManager {
 
     fun initialize(context: Context) {
         if (isInitialized) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val processName = Application.getProcessName()
+            if (context.packageName != processName) {
+                try {
+                    WebView.setDataDirectorySuffix("vyom_process")
+                } catch (e: Exception) {
+                    VyomLogger.i(context, "WebView suffix already set")
+                }
+            }
+        }
+
         try {
             AssetUtils.copyAssets(context)
             System.loadLibrary("xray")
@@ -75,7 +92,7 @@ object VyomVpnManager {
             loadSavedExclusions(context)
             isInitialized = true
         } catch (e: UnsatisfiedLinkError) {
-            Log.e(TAG, "Native libraries failed to load", e)
+            VyomLogger.e(context, "Native libraries failed to load", e)
         }
     }
 
@@ -109,7 +126,7 @@ object VyomVpnManager {
         val validationError = validateConfig(activity, finalConfig)
         if (validationError != null) {
             Toast.makeText(activity, validationError, Toast.LENGTH_LONG).show()
-            Log.e("VyomVPN", "Config validation failed: $validationError")
+            VyomLogger.e(activity, "Config validation failed: $validationError", null)
             return
         }
 
@@ -183,6 +200,10 @@ object VyomVpnManager {
                         val down = intent.getLongExtra("DOWN", 0L)
                         vpnListener?.onTrafficUpdate(up, down)
                     }
+                    ACTION_SDK_LOGS -> {
+                        val msg = intent.getStringExtra("MSG") ?: ""
+                        vpnListener?.onLogReceived(msg)
+                    }
                 }
             }
         }
@@ -190,6 +211,7 @@ object VyomVpnManager {
         val filter = IntentFilter().apply {
             addAction(ACTION_VPN_STATE)
             addAction(ACTION_VPN_TRAFFIC)
+            addAction(ACTION_SDK_LOGS)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -308,7 +330,7 @@ object VyomVpnManager {
                 val info = VyomIpInfo.fromJson(response)
                 callback(info)
             } catch (e: Exception) {
-                Log.e("VyomVPN", "Failed to fetch IP info: ${e.message}")
+                Log.e(TAG, "Failed to fetch IP info: ${e.message}")
                 callback(null)
             }
         }

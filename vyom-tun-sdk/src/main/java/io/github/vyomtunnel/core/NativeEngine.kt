@@ -1,6 +1,10 @@
 package io.github.vyomtunnel.core
 
+import android.net.VpnService
+
 internal object NativeEngine {
+    var vpnService: VpnService? = null
+
     init {
         try {
             System.loadLibrary("xray")
@@ -16,4 +20,9 @@ internal object NativeEngine {
     external fun stopXray()
 
     external fun validateConfig(config: String, assetPath: String): String?
+
+    @JvmStatic
+    fun protectSocket(fd: Int): Boolean {
+        return vpnService?.protect(fd) ?: false
+    }
 }

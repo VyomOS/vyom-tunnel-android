@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.*
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
@@ -143,6 +144,11 @@ class MainActivity : AppCompatActivity() {
                     tvSpeedDown.text = "↓ ${TrafficFormatter.formatSpeed(down)}"
                 }
             }
+
+            override fun onLogReceived(message: String) {
+                Log.d("VyomSDK_Log", message)
+            }
+
         })
     }
 

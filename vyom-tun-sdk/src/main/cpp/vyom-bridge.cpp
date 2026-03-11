@@ -45,3 +45,12 @@ Java_io_github_vyomtunnel_core_NativeEngine_validateConfig(JNIEnv *env, jobject 
     return result;
 }
 
+extern "C"
+bool protect_socket(JNIEnv *env, int fd) {
+    jclass engineClass = env->FindClass("io/github/vyomtunnel/core/NativeEngine");
+    jmethodID method = env->GetStaticMethodID(engineClass, "protectSocket", "(I)Z");
+
+    jboolean result = env->CallStaticBooleanMethod(engineClass, method, fd);
+    return result == JNI_TRUE;
+}
+

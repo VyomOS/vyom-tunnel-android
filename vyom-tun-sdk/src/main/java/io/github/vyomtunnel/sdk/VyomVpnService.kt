@@ -106,23 +106,22 @@ class VyomVpnService : TProxyService() {
             try {
                 NativeEngine.stopXray()
                 TProxyStopService()
-                Thread.sleep(300)
+                Thread.sleep(500)
+
+                NativeEngine.initNative(this)
+                val serverIp = extractServerIp(xrayConfig) ?: "78.129.150.59"
 
                 val result = NativeEngine.startXray(xrayConfig, assetPath)
                 VyomLogger.i(this, "Xray started: $result")
-                Thread.sleep(1000)
 
                 val builder = Builder()
                     .setSession(sessionName)
-                    .setMtu(1500)
-                    .addAddress("172.19.0.1", 30)
+                    .addAddress("26.26.26.1", 24)
                     .addRoute("0.0.0.0", 0)
-                    .addRoute("::", 0)
-                    .addDnsServer("1.1.1.1")
+                    .addRoute(serverIp, 32)
                     .addDnsServer("8.8.8.8")
-                    .allowFamily(android.system.OsConstants.AF_INET)
-                    .allowFamily(android.system.OsConstants.AF_INET6)
                     .addDisallowedApplication(packageName)
+                    .setMtu(1350)
 
                 val excludedApps = VyomVpnManager.getExcludedApps(this)
                 for (pkg in excludedApps) {
@@ -145,8 +144,7 @@ class VyomVpnService : TProxyService() {
                 VyomLogger.i(this, "TUN OK FD=$fd")
 
                 val tunFile = File(filesDir, "tun.yaml")
-                tunFile.writeText(
-                    """
+                tunFile.writeText("""
                 socks5:
                   address: 127.0.0.1
                   port: 20808
@@ -154,13 +152,10 @@ class VyomVpnService : TProxyService() {
                   enabled: true
                 udp:
                   enabled: true
+                mtu: 1350
                 dns:
-                  enabled: true
-                  upstream:
-                   - 1.1.1.1
-                   - 8.8.8.8
-                """.trimIndent()
-                )
+                  enabled: false
+                """.trimIndent())
 
                 TProxyStartService(tunFile.absolutePath, fd)
 

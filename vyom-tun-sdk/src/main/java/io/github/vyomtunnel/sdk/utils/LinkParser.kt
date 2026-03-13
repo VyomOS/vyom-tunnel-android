@@ -92,18 +92,17 @@ object LinkParser {
 
         config.put("log", JSONObject().put("loglevel", "warning"))
 
-        config.put("fakedns", JSONArray().put(
-            JSONObject().apply {
-                put("ipPool", "198.18.0.0/15")
-                put("poolSize", 65535)
-            }
-        ))
+//        config.put("fakedns", JSONArray().put(
+//            JSONObject().apply {
+//                put("ipPool", "198.18.0.0/15")
+//                put("poolSize", 65535)
+//            }
+//        ))
 
         config.put("dns", JSONObject().apply {
             put("servers", JSONArray().apply {
-                put("https://1.1.1.1/dns-query")
-                put("https://8.8.8.8/dns-query")
-                put("localhost")
+                put("1.1.1.1")
+                put("8.8.8.8")
             })
             put("queryStrategy", "UseIPv4")
         })
@@ -113,16 +112,11 @@ object LinkParser {
                 put("listen", "127.0.0.1")
                 put("port", 20808)
                 put("protocol", "socks")
-                put("settings", JSONObject().apply {
-                    put("auth", "noauth")
-                    put("udp", true)
-                })
+                put("settings", JSONObject().put("udp", true))
                 put("sniffing", JSONObject().apply {
                     put("enabled", true)
                     put("destOverride", JSONArray().apply {
-                        put("http")
-                        put("tls")
-                        put("fakedns")
+                        put("http"); put("tls"); put("quic")
                     })
                 })
             }
@@ -148,6 +142,9 @@ object LinkParser {
             put("streamSettings", JSONObject().apply {
                 put("network", network)
                 put("security", security)
+                put("sockopt", JSONObject().apply {
+                    put("mark", 255)
+                })
 
                 when (security) {
                     "tls" -> put("tlsSettings", JSONObject().put(
@@ -186,13 +183,16 @@ object LinkParser {
         config.put("routing", JSONObject().apply {
             put("domainStrategy", "IPIfNonMatch")
             put("rules", JSONArray().apply {
-                    put(JSONObject().apply {
+                put(JSONObject().apply {
                     put("type", "field")
-                    put("network", "udp")
-                    put("port", 53)
+                    put("port", "53") // Intercept DNS
                     put("outboundTag", "proxy")
                 })
-
+                put(JSONObject().apply {
+                    put("type", "field")
+                    put("ip", JSONArray().put("geoip:private"))
+                    put("outboundTag", "direct")
+                })
                 put(JSONObject().apply {
                     put("type", "field")
                     put("network", "tcp,udp")

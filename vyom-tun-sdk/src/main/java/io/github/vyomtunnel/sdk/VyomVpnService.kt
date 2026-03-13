@@ -4,6 +4,7 @@ import android.app.Application.getProcessName
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -14,10 +15,10 @@ import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
-import android.util.Log
 import androidx.annotation.RequiresApi
 import hev.htproxy.TProxyService
 import io.github.vyomtunnel.core.NativeEngine
+import io.github.vyomtunnel.sdk.utils.VyomLogger
 import java.io.File
 import java.util.Timer
 import java.util.TimerTask
@@ -58,12 +59,12 @@ class VyomVpnService : TProxyService() {
         override fun onAvailable(network: Network) {
             super.onAvailable(network)
             if (!VyomVpnManager.isAutoReconnectEnabled(this@VyomVpnService)) {
-                Log.i(TAG, "Auto-reconnect disabled by user")
+                VyomLogger.i(this@VyomVpnService, "Auto-reconnect disabled by user")
                 return
             }
 
             if (!VyomVpnManager.wasVpnRunning(this@VyomVpnService)) {
-                Log.i(TAG, "VPN not marked alive, skipping reconnect")
+                VyomLogger.i(this@VyomVpnService, "VPN not marked alive, skipping reconnect")
                 return
             }
 
@@ -71,7 +72,7 @@ class VyomVpnService : TProxyService() {
 
             val config = VyomVpnManager.getLastConfig(this@VyomVpnService) ?: return
 
-            Log.i(TAG, "Network changed → restarting Xray")
+            VyomLogger.i(this@VyomVpnService, "Network changed → restarting Xray")
 
             NativeEngine.stopXray()
             NativeEngine.startXray(config, filesDir.absolutePath)
@@ -79,7 +80,7 @@ class VyomVpnService : TProxyService() {
 
         override fun onLost(network: Network) {
             super.onLost(network)
-            Log.w(TAG, "Network connection lost")
+            VyomLogger.e(this@VyomVpnService, "Network connection lost", throwable = null)
         }
     }
 
@@ -99,35 +100,38 @@ class VyomVpnService : TProxyService() {
     private fun startVpn(xrayConfig: String) {
         val assetPath = filesDir.absolutePath
         val sessionName = VyomVpnManager.getCustomName(this) ?: "Vyom VPN"
-        Log.i("VyomVPN", "=== START VPN ===")
+        VyomLogger.i(this, "=== START VPN ===")
 
         thread(name = "VyomStartup") {
             try {
                 NativeEngine.stopXray()
                 TProxyStopService()
-                Thread.sleep(300)
+                Thread.sleep(500)
+
+                NativeEngine.initNative(this)
+                val serverIp = extractServerIp(xrayConfig) ?: "78.129.150.59"
 
                 val result = NativeEngine.startXray(xrayConfig, assetPath)
-                Log.i("VyomVPN", "Xray started: $result")
-                Thread.sleep(1000)
+                VyomLogger.i(this, "Xray started: $result")
 
                 val builder = Builder()
                     .setSession(sessionName)
-                    .setMtu(1500)
-                    .addAddress("172.19.0.1", 30)
+                    .addAddress("26.26.26.1", 24)
                     .addRoute("0.0.0.0", 0)
-                    .allowFamily(android.system.OsConstants.AF_INET)
+                    .addRoute(serverIp, 32)
+                    .addDnsServer("8.8.8.8")
                     .addDisallowedApplication(packageName)
+                    .setMtu(1350)
 
                 val excludedApps = VyomVpnManager.getExcludedApps(this)
                 for (pkg in excludedApps) {
                     try {
                         if (pkg != packageName) {
                             builder.addDisallowedApplication(pkg)
-                            Log.i("VyomVPN", "SplitTunnel EXCLUDE: $pkg")
+                            VyomLogger.i(this, "SplitTunnel EXCLUDE: $pkg")
                         }
                     } catch (e: Exception) {
-                        Log.w("VyomVPN", "Failed to exclude $pkg", e)
+                        VyomLogger.e(this, "Failed to exclude $pkg", e)
                     }
                 }
 
@@ -137,11 +141,10 @@ class VyomVpnService : TProxyService() {
 
                 tunInterface = builder.establish()
                 val fd = tunInterface?.fd ?: throw IllegalStateException("TUN failed")
-                Log.i("VyomVPN", "TUN OK FD=$fd")
+                VyomLogger.i(this, "TUN OK FD=$fd")
 
                 val tunFile = File(filesDir, "tun.yaml")
-                tunFile.writeText(
-                    """
+                tunFile.writeText("""
                 socks5:
                   address: 127.0.0.1
                   port: 20808
@@ -149,19 +152,19 @@ class VyomVpnService : TProxyService() {
                   enabled: true
                 udp:
                   enabled: true
+                mtu: 1350
                 dns:
-                  enabled: true
-                """.trimIndent()
-                )
+                  enabled: false
+                """.trimIndent())
 
                 TProxyStartService(tunFile.absolutePath, fd)
 
                 startStatsTicker()
                 notifyStatus(VyomState.CONNECTED)
-                Log.i("VyomVPN", "=== VPN CONNECTED ===")
+                VyomLogger.i(this, "=== VPN CONNECTED ===")
 
             } catch (e: Exception) {
-                Log.e("VyomVPN", "VPN START FAILED", e)
+                VyomLogger.e(this, "VPN START FAILED", e)
                 notifyStatus(VyomState.ERROR)
             }
         }
@@ -183,7 +186,7 @@ class VyomVpnService : TProxyService() {
                 notifyStatus(VyomState.DISCONNECTED)
                 stopSelf()
             } catch (e: Exception) {
-                Log.e(TAG, "Vpn stop crash", e)
+                VyomLogger.e(this, "Vpn stop crash", e)
                 notifyStatus(VyomState.DISCONNECTED)
                 stopSelf()
             }
@@ -228,6 +231,9 @@ class VyomVpnService : TProxyService() {
         val iconRes = if (customIcon != 0) customIcon else applicationInfo.icon
         val channelName = intent?.getStringExtra(NOTIF_CHANNEL) ?: "VPN Service"
 
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val pendingIntent = PendingIntent.getActivity(this, 0, launchIntent, PendingIntent.FLAG_IMMUTABLE)
+
         createNotificationChannel(channelName)
 
         val notificationBuilder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -240,6 +246,7 @@ class VyomVpnService : TProxyService() {
             .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(iconRes)
+            .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
 
@@ -260,11 +267,12 @@ class VyomVpnService : TProxyService() {
 
     override fun onCreate() {
         super.onCreate()
+        NativeEngine.vpnService = this
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 android.webkit.WebView.setDataDirectorySuffix("xray_process")
             } catch (e: Exception) {
-                Log.e(TAG, e.message.toString())
+                VyomLogger.e(this, e.message.toString())
             }
         }
         val request = NetworkRequest.Builder()
@@ -284,6 +292,10 @@ class VyomVpnService : TProxyService() {
     override fun onRevoke() {
         stopVpn()
         super.onRevoke()
+    }
+
+    override fun protect(fd: Int): Boolean {
+        return super.protect(fd)
     }
 
     private fun notifyStatus(state: VyomState) {
@@ -318,7 +330,7 @@ class VyomVpnService : TProxyService() {
 
                     // If no new data for 10 seconds while connected
                     if (noDataCount >= 20) {
-                        Log.w(TAG, "No internet traffic detected for 10s!")
+                        VyomLogger.e(this@VyomVpnService, "No internet traffic detected for 10s!", null)
                         val intent = Intent(VyomVpnManager.ACTION_NO_INTERNET)
                         sendBroadcast(intent)
                         noDataCount = 0 // Reset to avoid spamming
@@ -326,5 +338,23 @@ class VyomVpnService : TProxyService() {
                 }
             }
         }, 10000L, 1000L) // Check every second after 10s delay
+    }
+
+    private fun extractServerIp(config: String): String? {
+        return try {
+            val obj = org.json.JSONObject(config)
+            val outbounds = obj.getJSONArray("outbounds")
+
+            for (i in 0 until outbounds.length()) {
+                val outbound = outbounds.getJSONObject(i)
+                val settings = outbound.optJSONObject("settings") ?: continue
+                val vnext = settings.optJSONArray("vnext") ?: continue
+                val server = vnext.getJSONObject(0)
+                return server.getString("address")
+            }
+            null
+        } catch (e: Exception) {
+            null
+        }
     }
 }
